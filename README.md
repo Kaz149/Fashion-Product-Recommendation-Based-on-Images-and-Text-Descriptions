@@ -11,8 +11,9 @@ project-root/
 │  │  └─ dataset_loader.py     # Load dataset, split train/val/test
 │  │
 │  ├─ image_encoder/       # Module 2: Image Embedding
-│  │  ├─ resnet_encoder.py     # ResNet50 (required baseline)
-│  │  └─ clip_image_encoder.py  # CLIP ViT image branch (multimodal use)
+│  │  ├─ resnet_encoder.py     # ResNet50 
+│  │  ├─ clip_image_encoder.py  # CLIP ViT image branch 
+│  │  └─deepfashion_attr_predictor.py   # predict color from pixel
 │  │
 │  ├─ text_encoder/        # Module 3: Text Embedding
 │  │  
