@@ -1,11 +1,4 @@
 import os
-import sys
-sys.path.insert(0, os.getcwd())
-try:
-    from pipeline._env_setup import setup_env
-    setup_env()
-except Exception:
-    pass
 from typing import List, Union, Optional
 from pathlib import Path
 import yaml

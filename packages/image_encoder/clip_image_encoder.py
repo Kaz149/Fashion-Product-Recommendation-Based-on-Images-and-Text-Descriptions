@@ -1,11 +1,4 @@
 import os
-import sys
-sys.path.insert(0, os.getcwd())
-try:
-    from pipeline._env_setup import setup_env
-    setup_env()
-except Exception:
-    pass
 from typing import List, Union, Optional
 from pathlib import Path
 import yaml
@@ -49,6 +42,21 @@ class CLIPImageEncoder:
         self._model.eval().to(self.device)
         self._loaded = True
 
+    @staticmethod
+    def _unwrap(out):
+        if isinstance(out, torch.Tensor):
+            return out
+        if hasattr(out, "image_embeds") and getattr(out, "image_embeds") is not None:
+            return out.image_embeds
+        if hasattr(out, "text_embeds") and getattr(out, "text_embeds") is not None:
+            return out.text_embeds
+        if hasattr(out, "pooler_output") and getattr(out, "pooler_output") is not None:
+            return out.pooler_output
+        if hasattr(out, "last_hidden_state") and getattr(out, "last_hidden_state") is not None:
+            return out.last_hidden_state[:, 0, :]
+        # fallback 
+        return out[0]
+
     def _preprocess(self, images: List[Image.Image]) -> torch.Tensor:
         self._ensure_loaded()
         proc = self._processor(images=images, return_tensors="pt")
@@ -71,14 +79,7 @@ class CLIPImageEncoder:
         pixels = self._preprocess(loaded)
         with torch.no_grad():
             out = self._model(pixel_values=pixels)
-            if isinstance(out, torch.Tensor):
-                emb = out
-            elif hasattr(out, "image_embeds") and out.image_embeds is not None:
-                emb = out.image_embeds
-            elif hasattr(out, "pooler_output") and out.pooler_output is not None:
-                emb = out.pooler_output
-            else:
-                emb = out[0]
+            emb = self._unwrap(out)
         emb = emb / emb.norm(dim=-1, keepdim=True)
         return emb.cpu().numpy().astype(np.float32)
 
