@@ -1,0 +1,52 @@
+paths:
+  data_raw: "data/raw"
+  metadata_csv: "data/raw/metadata.csv"
+  user_uploads: "data/user_uploads"
+
+dataset:
+  image_size: 224
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  random_seed: 42
+
+i18n:
+  enabled: true
+  default_language: "vi"
+  fallback_language: "en"
+  canonical_language: "en"
+  supported_csv_columns:
+    vi_variants:
+      name: ["name_vi"]
+      category: ["category_vi"]
+      color: ["color_vi"]
+      material: ["material_vi"]
+      style: ["style_vi"]
+      description: ["description_vi"]
+  auto_canonicalize_on_load: true
+
+image_encoder:
+  resnet:
+    model_name: "resnet50"
+    pretrained: true
+    embedding_dim: 2048
+  clip_image:
+    model_name: "openai/clip-vit-base-patch32"
+    embedding_dim: 512
+  deepfashion_attr_predictor:
+    enabled: true
+    color_canonical_count: 14
+    kmeans_k: 3
+    kmeans_max_iter: 10
+    pixel_subsample_count: 5000
+    max_image_side: 256
+
+interactive_test:
+  clip_multimodal_weight_image: 0.6
+  clip_multimodal_weight_text: 0.4
+  top_k_default: 5
+  top_k_max: 20
+
+inference:
+  similarity_metric: "cosine"
+  l2_normalize_embeddings: true
