@@ -15,15 +15,15 @@ project-root/
 ├─ requirements.txt
 └─ README.md
 ```
-## Demo
+# Demo
 
-# 1. Install dependencies 
+## 1. Install dependencies 
 pip install -r requirements.txt
 
-# 2. Prepare data + embeddings 
-python scripts/01_prepare_dataset.py --force
+## 2. Prepare data + embeddings 
+python scripts/01_prepare_dataset.py 
 python scripts/02_extract_all_embeddings.py
 python scripts/03_build_embedding_manifest.py
 
-# 3. Launch the web app
+## 3. Launch the web app
 streamlit run app.py
