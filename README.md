@@ -4,36 +4,26 @@
 
 ```
 project-root/
-├─ packages/                # Core Python packages
-│  ├─ preprocess/          # Module 1: Data Preprocessing
-│  │  ├─ image_preprocess.py   # Resize, normalize images
-│  │  ├─ text_preprocess.py    # Clean, tokenize text descriptions
-│  │  └─ dataset_loader.py     # Load dataset, split train/val/test
-│  │
-│  ├─ image_encoder/       # Module 2: Image Embedding
-│  │  ├─ resnet_encoder.py     # ResNet50 
-│  │  ├─ clip_image_encoder.py  # CLIP ViT image branch 
-│  │  └─deepfashion_attr_predictor.py   # predict color from pixel
-│  │
-│  ├─ text_encoder/        # Module 3: Text Embedding
-│  │  
-│  ├─ fusion/              # Module 4: Multimodal Fusion
-│  │
-│  ├─ retrieval/           # Module 5: Similarity Search
-│  │
-│  ├─ outfit/              # Module 6: Outfit Coordination
-│  │
-│  └─ evaluation/          # Module 7: Evaluation & Comparison
-│
-├─ pipeline/               # End-to-end pipeline
-│
-├─ webapp/                 # Module 8: Web Demo (Streamlit)
-│
-├─ data/
-│  ├─ raw/                    # Raw dataset (images + metadata CSV)
-│  └─ embeddings/             # Saved product embeddings
+├── src/                      # Source code modules
+│   ├── dataset_adaptor.py    # DatasetLoader 3 format, MetadataGenerator song ngữ
+│   ├── image_embedder.py     # BaseImageEmbedder + 3 lớp (ResNet50/EffNetB0/CLIP)
+│   ├── text_embedder.py      # BaseTextEmbedder + 3 lớp (TF-IDF/SBERT/CLIP)
+│   ├── retrieval.py          # Retriever class 4 modes + outfit match 
+│   ├── metrics.py            # P@k/R@k/AP/mAP/F1 + evaluate_method()
+│   └── ui_utils.py           # Streamlit helpers 
 │
 ├─ requirements.txt
 └─ README.md
 ```
+## Demo
 
+# 1. Install dependencies 
+pip install -r requirements.txt
+
+# 2. Prepare data + embeddings 
+python scripts/01_prepare_dataset.py --force
+python scripts/02_extract_all_embeddings.py
+python scripts/03_build_embedding_manifest.py
+
+# 3. Launch the web app
+streamlit run app.py
