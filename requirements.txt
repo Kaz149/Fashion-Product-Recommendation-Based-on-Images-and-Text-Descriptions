@@ -1,0 +1,37 @@
+# Sử dụng Python 3.9 / 3.10 / 3.11 (đã test trên 3.10)
+# Install: pip install -r requirements.txt
+# GPU: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 (nếu có CUDA 12.1)
+# =============================================================
+
+# ---- Core framework:  ----
+torch>=2.1.0,<3.0.0
+torchvision>=0.16.0,<0.20.0
+
+# ---- CLIP  ----
+open-clip-torch>=2.20.0,<3.0.0
+
+# ---- Sentence BERT (hỗ trợ tiếng Việt & Anh) ----
+sentence-transformers>=2.2.0,<3.0.0
+
+# ---- ML: TF-IDF, NearestNeighbors, Metrics ----
+scikit-learn>=1.3.0,<2.0.0
+
+# ---- Web UI ----
+streamlit>=1.28.0,<2.0.0
+
+# ---- Data processing ----
+pandas>=2.0.0,<3.0.0
+numpy>=1.24.0,<2.0.0
+
+# ---- Image processing ----
+Pillow>=9.5.0,<11.0.0
+opencv-python-headless>=4.8.0,<5.0.0
+
+# ---- Visualization ----
+matplotlib>=3.7.0,<4.0.0
+seaborn>=0.12.0,<1.0.0
+
+# ---- CLI / Utils ----
+tqdm>=4.65.0,<5.0.0
+PyYAML>=6.0,<7.0
+joblib>=1.3.0,<2.0.0
