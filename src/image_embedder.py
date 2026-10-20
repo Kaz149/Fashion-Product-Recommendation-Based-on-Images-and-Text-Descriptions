@@ -15,10 +15,6 @@ except ImportError:
     open_clip = None
 from tqdm import tqdm
 from config import PATHS, IMAGE_MODELS, CLIP, DEVICE
-try:
-    from src.scratch_cnn_model import load_backbone_for_embedding
-except ImportError:
-    load_backbone_for_embedding = None
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -71,20 +67,11 @@ class BaseImageEmbedder(ABC):
         norms[norms == 0] = 1.0
         return (stacked / norms).astype(np.float32)
 
-class ScratchCNNEmbedder(BaseImageEmbedder, dim=IMAGE_MODELS.DIMS['scratch']):
-    transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
-
-    def __init__(self, ckpt_path: Path=PATHS.SCRATCH_CNN_CKPT):
-        super().__init__()
-        if load_backbone_for_embedding is None:
-            raise ImportError('Không thể import load_backbone_for_embedding từ src.scratch_cnn_model. Vui lòng đảm bảo file src/scratch_cnn_model.py tồn tại và định nghĩa hàm này.')
-        self.model, _ = load_backbone_for_embedding(ckpt_path, num_classes=0)
-        self.model = self.model.to(self.device)
-        self.model.eval()
-
-    def _embed_batch_tensor(self, batch_tensor: torch.Tensor) -> np.ndarray:
-        features = self.model.forward_features(batch_tensor)
-        return features.detach().cpu().numpy().astype(np.float32)
+class ScratchCNNEmbedder(BaseImageEmbedder, dim=512):
+    def __init__(self, *a, **k):
+        raise ValueError('scratch removed')
+    def _embed_batch_tensor(self, batch_tensor):
+        raise NotImplementedError
 
 class ResNet50Embedder(BaseImageEmbedder, dim=IMAGE_MODELS.DIMS['resnet']):
     transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
@@ -150,7 +137,7 @@ class CLIPImageEmbedder(BaseImageEmbedder, dim=IMAGE_MODELS.DIMS['clip']):
 
 def get_image_embedder(name: str, **kwargs) -> BaseImageEmbedder:
     if name == 'scratch':
-        return ScratchCNNEmbedder(**kwargs)
+        raise ValueError("scratch CNN removed - use 'clip', 'resnet' or 'effnet'")
     elif name == 'resnet':
         return ResNet50Embedder(**kwargs)
     elif name == 'effnet':

@@ -1,0 +1,161 @@
+# ============================================================
+# Multimodal Fashion Recommendation System - GitHub .gitignore
+# (Loại bỏ các file không cần push lên GitHub - nặng, sinh ra tự động)
+# ============================================================
+
+# -------- PYTHON BYTECODE CACHE --------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# -------- PYTEST / TEST CACHE --------
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# -------- MÔI TRƯỜNG VIRTUAL ENV --------
+.venv/
+venv/
+env/
+ENV/
+.env
+.venv313/
+.venv*
+*.env.local
+
+# -------- IDE / Editor cache --------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# -------- JUPYTER --------
+.ipynb_checkpoints
+*.ipynb.meta/
+
+# -------- ML/DL HUGGINGFACE CACHE (Download pretrained weights 1st run) --------
+# (User chạy lần đầu tự tải về ~ 600MB total → không push)
+~/.cache/huggingface/
+~/.cache/torch/
+
+# ============================================================
+# PROJECT-SPECIFIC IGNORÉ (QUAN TRỌNG NHẤT)
+# ============================================================
+
+# -------- DATA RAW (801 JPG dataset gốc / user upload dataset custom) --------
+# 👉 Nặng → KHÔNG push. Chỉ giữ mẫu 10 ảnh fixture test ở tests/fixture_images
+data/raw/images/
+data/raw/**/*
+!data/raw/images/.gitkeep
+!tests/fixture_images/**
+
+# -------- DATA PROCESSED (Ảnh 224² JPG + metadata CSV + ground truth) --------
+# 👉 Nặng (801 JPG 224² ~ 50MB + metadata)
+data/processed/images/
+data/processed/metadata.csv
+data/processed/ground_truth.pkl
+!data/processed/.gitkeep
+
+# -------- EMBEDDINGS (numpy .npy + index_mapping pickle + manifest fingerprint) --------
+# 👉 Nặng 15MB total → KHÔNG push. User chạy scripts/03_extract_all_embeddings.py tự tạo khi clone.
+data/embeddings/*.npy
+data/embeddings/index_mapping.pkl
+data/embeddings/embedding_manifest.json
+!data/embeddings/.gitkeep
+
+# -------- MODELS WEIGHTS (Scratch CNN trained ckpt .pt + TF-IDF vectorizer pkl) --------
+# 👉 scratch_cnn_best.pt vài MB → user train tự 02_train_scratch_cnn.py khi clone.
+models/scratch_cnn_best.pt
+models/scratch_training_log.csv
+models/tfidf_vectorizer.pkl
+models/*.pkl
+models/*.pt
+models/*.pth
+models/*.ckpt
+models/*.h5
+models/*.keras
+!models/.gitkeep
+
+# -------- CUSTOM HUMAN LABELS (User chấm tay khi có, private) --------
+data/custom/human_labeled.csv
+data/custom/filename_to_category.json
+data/custom/metadata.csv
+!data/custom/.gitkeep
+
+# -------- REPORTS ĐÁNH GIÁ (Tự sinh ra từ step 06/07 → có thể push được nếu muốn) --------
+# 👉 Chọn KEEP: reports/metrics.csv + error_analysis.md quan trọng cho khóa luận
+#    Nhưng các ảnh bar_chart PNG/error_case PNG tự sinh 20+ file -> bỏ push
+reports/figures/metrics_bar_chart.png
+reports/figures/recall_curve.png
+reports/figures/alpha_tuning_distribution.png
+reports/figures/error_type_distribution.png
+reports/error_cases/error_case_*.png
+reports/error_cases/
+reports/data_results_evaluation_results.csv
+!reports/.gitkeep
+!reports/figures/.gitkeep
+data/results/evaluation_results.csv
+!data/results/.gitkeep
+
+# -------- TEMP LOG FILES (Sinh ra mỗi lần chạy script / UI) --------
+*.log
+!logs/.gitkeep
+
+# -------- TEMP BATCH LAUNCHERS (Các file _run_*.bat _tmp_*.bat) --------
+# 👉 Dùng local test chỉ trên máy của sinh viên → không push.
+#    (Nếu muốn push launcher chuẩn → dùng scripts/*.py + run_all.bat)
+_tmp*.bat
+_run*.bat
+!run_all.bat
+!scripts/*.py
+
+# -------- TEMP PYTHON HELPER TEST SCRIPTS (_*.py NGOẠI TRỪ _bootstrap_env.py BẮT BUỘC) --------
+# 👉 _bootstrap_env.py là module trung tâm cần import 13 nơi → NẰM LẠI (DÙNG !)
+#    Các helper _smoke, _check, _verify, _test... dùng test local → XÓA
+_check_*.py
+_test_*.py
+_smoke_*.py
+_verify_*.py
+_tmp_*.py
+!_bootstrap_env.py
+
+# -------- PYINSTALLER / BUILD OUTPUT --------
+*.exe
+*.dll
+*.so
+*.dylib
+*.manifest
+
+# -------- WINDOWS / OS X --------
+*.lnk
+*.db-journal
+ehthumbs.db
+ehthumbs_vista.db

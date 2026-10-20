@@ -35,7 +35,7 @@ with st.sidebar:
     admin_sidebar_components()
     st.divider()
     st.caption(f'Device: `{DEVICE}` | Version: v1.0')
-tab_img, tab_txt, tab_outfit = st.tabs(['🖼️  Tìm kiếm bằng ảnh', '📝  Tìm kiếm bằng văn bản', '👔  Gợi ý phối đồ'])
+tab_img, tab_txt, tab_outfit, tab_cmp, tab_eval = st.tabs(['🖼️  Tìm kiếm bằng ảnh', '📝  Tìm kiếm bằng văn bản', '👔  Gợi ý phối đồ', '📊  So sánh mô hình', '📈  Số liệu so sánh mô hình'])
 
 
 def _resolve_sample_image_path(name: str) -> Path | None:
@@ -116,7 +116,20 @@ with tab_txt:
         else:
             with st.spinner('Đang tìm kiếm tương đồng (text embedding)...'):
                 try:
-                    render_product_grid(retriever.search_by_text(text_query, model=txt_model_id, top_k=txt_topk), cols=5)
+                    results = retriever.search_by_text(text_query, model=txt_model_id, top_k=txt_topk)
+                    fixes = getattr(retriever, 'last_query_fixes', []) or []
+                    corrected = getattr(retriever, 'last_query_corrected', '') or ''
+                    if fixes and corrected.strip() and corrected.strip().lower() != text_query.strip().lower():
+                        st.info(f'🔍 Ý bạn là **"{corrected}"**? (tự sửa: {", ".join(fixes)})')
+                    try:
+                        from src.retrieval import parse_query_attrs as _pqa, _COLOR_SIMILAR as _CSIM
+                        _qc, _qc2, _qg, _qs, _qm = _pqa(corrected or text_query)
+                        _fam = [c for c in _CSIM.get(_qc, ()) if c] if _qc else []
+                        if _fam:
+                            st.caption(f'🎨 Màu gần giống **{_qc}**: {", ".join(_fam[:6])} cũng được tính (điểm thấp hơn màu chính xác).')
+                    except Exception:
+                        pass
+                    render_product_grid(results, cols=5)
                 except Exception as e:
                     st.error(f'Lỗi tìm kiếm văn bản: {e}')
 with tab_outfit:
@@ -173,5 +186,86 @@ def _cmp_helper(results, label, limit=5):
     render_product_grid(results[:limit], cols=1, show_explanation=False)
 
 
+with tab_cmp:
+    st.header('SO SÁNH SONG SONG 4 mô hình trên cùng 1 input')
+    st.markdown('So sánh kết quả: **EfficientNet-B0** | **ResNet50** | **SBERT (text)** | **CLIP Multimodal**')
+    col_c_img, col_c_text = st.columns([1, 1])
+    with col_c_img:
+        cmp_img_upload = st.file_uploader('Ảnh input (cho image + CLIP methods)', type=['jpg', 'jpeg', 'png'], key='cmp_img_upload')
+    with col_c_text:
+        cmp_text_query = st.text_area('Text input (cho SBERT + CLIP methods)', placeholder='Mô tả sản phẩm (cho SBERT và CLIP)', height=120, max_chars=600, key='cmp_text_query')
+    cmp_topk = st.slider('Top-K (hiển thị top 5 mỗi cột)', min_value=5, max_value=RETRIEVAL.DEFAULT_MAX_K, value=10, key='cmp_topk')
+    if st.button('🔍 So sánh 4 mô hình cùng lúc', key='cmp_btn', type='primary'):
+        if retriever is None:
+            st.warning('Vui lòng Rebuild trước khi tìm kiếm.')
+        else:
+            cmp_img_path = _img_upload_to_temp(cmp_img_upload)
+            cmp_text_ok = bool(cmp_text_query and cmp_text_query.strip())
+            cmp_img_ok = cmp_img_path is not None
+            if not cmp_img_ok and not cmp_text_ok:
+                st.warning('Vui lòng cung cấp ít nhất ảnh HOẶC văn bản.')
+            else:
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    if cmp_img_ok:
+                        with st.spinner('EfficientNet...'):
+                            try:
+                                _cmp_helper(retriever.search_by_image(str(cmp_img_path), model='effnet', top_k=cmp_topk), '1️⃣ EfficientNet')
+                            except Exception as e:
+                                st.error(str(e))
+                    else:
+                        st.subheader('1️⃣ EfficientNet')
+                        st.info('Cần ảnh input.')
+                with c2:
+                    if cmp_img_ok:
+                        with st.spinner('ResNet50...'):
+                            try:
+                                _cmp_helper(retriever.search_by_image(str(cmp_img_path), model='resnet', top_k=cmp_topk), '2️⃣ ResNet50')
+                            except Exception as e:
+                                st.error(str(e))
+                    else:
+                        st.subheader('2️⃣ ResNet50')
+                        st.info('Cần ảnh input.')
+                with c3:
+                    if cmp_text_ok:
+                        with st.spinner('SBERT...'):
+                            try:
+                                _cmp_helper(retriever.search_by_text(cmp_text_query, model='sbert', top_k=cmp_topk), '3️⃣ SBERT (text)')
+                            except Exception as e:
+                                st.error(str(e))
+                    else:
+                        st.subheader('3️⃣ SBERT (text)')
+                        st.info('Cần text input.')
+                with c4:
+                    with st.spinner('CLIP Multimodal...'):
+                        try:
+                            _cmp_helper(retriever.search_multimodal(img_path=str(cmp_img_path) if cmp_img_ok else None, text=cmp_text_query if cmp_text_ok else None, alpha=0.5, top_k=cmp_topk), '4️⃣ CLIP Multimodal')
+                        except Exception as e:
+                            st.error(str(e))
+with tab_eval:
+    st.header('So Sánh ĐỊNH LƯỢNG 6 mô hình ')
+    reports_metrics_csv = getattr(PATHS, 'REPORTS_METRICS_CSV', PATHS.REPORTS_DIR / 'metrics.csv')
+    reports_figures_metrics_bar = getattr(PATHS, 'REPORTS_FIGURES_METRICS_BAR', PATHS.REPORTS_FIGURES_DIR / 'metrics_bar_chart.png')
+    reports_figures_recall_curve = getattr(PATHS, 'REPORTS_FIGURES_RECALL_CURVE', PATHS.REPORTS_FIGURES_DIR / 'recall_curve.png')
+    reports_error_analysis_md = getattr(PATHS, 'REPORTS_ERROR_ANALYSIS_MD', PATHS.ERROR_ANALYSIS_MD)
+    reports_error_cases_dir = getattr(PATHS, 'REPORTS_ERROR_CASES_DIR', PATHS.REPORTS_DIR / 'error_cases')
+    if not any((p.exists() for p in [reports_metrics_csv, reports_figures_metrics_bar, reports_figures_recall_curve, reports_error_analysis_md, reports_error_cases_dir])):
+        st.markdown('### ❌ Chưa có dữ liệu so sánh\n\nChạy `python scripts/rebuild_all.py` rồi refresh trang (F5).', unsafe_allow_html=False)
+    else:
+        st.subheader('A. Bảng kết quả metrics (Recall / Precision / mAP / F1)')
+        if reports_metrics_csv.exists():
+            st.dataframe(pd.read_csv(reports_metrics_csv).round(4).sort_values(f'mAP@{EVALUATION.MAIN_K}', ascending=False).reset_index(drop=True), use_container_width=True, hide_index=True)
+        else:
+            st.warning('Chưa có file metrics.csv. Chạy Rebuild Toàn Bộ hoặc 06_evaluate_all.py.')
+        st.divider()
+        st.subheader('B. Biểu đồ So Sánh')
+        if reports_figures_metrics_bar.exists():
+            st.image(Image.open(reports_figures_metrics_bar), caption='Biểu đồ cột Recall@K & mAP/F1', use_container_width=True)
+        else:
+            st.warning('Chưa có biểu đồ metrics bar. Chạy 06_evaluate_all.py để tạo.')
+        if reports_figures_recall_curve.exists():
+            st.image(Image.open(reports_figures_recall_curve), caption='Đường Recall@K theo mô hình', use_container_width=True)
+        else:
+            st.warning('Chưa có biểu đồ Recall curve.')
 st.divider()
 st.caption('Fashion Recommendation System')
