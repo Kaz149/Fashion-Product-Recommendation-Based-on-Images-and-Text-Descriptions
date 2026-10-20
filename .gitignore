@@ -1,0 +1,118 @@
+# Python cache and build output
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+*.manifest
+*.spec
+
+# Test cache and coverage
+.pytest_cache/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Local environments
+.venv*
+venv/
+env/
+ENV/
+.env
+*.env.local
+
+# Editor and operating system files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.lnk
+*.db-journal
+ehthumbs.db
+ehthumbs_vista.db
+
+# Notebook checkpoints
+.ipynb_checkpoints
+*.ipynb.meta/
+
+# Raw data; allow directory placeholders
+/data/raw/*
+!/data/raw/.gitkeep
+!/data/raw/images/
+/data/raw/images/*
+!/data/raw/images/.gitkeep
+
+# Generated catalog
+/data/processed/images/
+/data/processed/metadata.csv
+/data/processed/ground_truth.pkl
+
+# Generated embeddings and rebuild temporary files
+/data/embeddings/*.npy
+/data/embeddings/index_mapping.pkl
+/data/embeddings/embedding_manifest.json
+/data/embeddings/tfidf_build_*/
+
+# Backups created by rebuild_tfidf.py
+/data/backups/
+
+# Local model artifacts
+/models/*.pkl
+/models/*.pt
+/models/*.pth
+/models/*.ckpt
+/models/*.h5
+/models/*.keras
+/models/scratch_training_log.csv
+
+# Local custom metadata
+/data/custom/human_labeled.csv
+/data/custom/filename_to_category.json
+/data/custom/metadata.csv
+
+# Generated report images and intermediate results
+/reports/figures/metrics_bar_chart.png
+/reports/figures/recall_curve.png
+/reports/figures/alpha_tuning_distribution.png
+/reports/figures/error_type_distribution.png
+/reports/error_cases/
+/reports/data_results_evaluation_results.csv
+/data/results/evaluation_results.csv
+
+# Local logs and helper scripts
+*.log
+_tmp*.bat
+_run*.bat
+_check_*.py
+_test_*.py
+_smoke_*.py
+_verify_*.py
+_tmp_*.py
+
+# Compiled application files
+*.exe
+*.dll
+*.dylib

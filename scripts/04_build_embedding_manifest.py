@@ -53,7 +53,7 @@ def main() -> None:
     fingerprint = compute_dataset_fingerprint(PATHS.DATA_PROCESSED_METADATA, PATHS.DATA_PROCESSED_IMAGES)
     print(f'  fingerprint = {fingerprint[:16]}...{fingerprint[-8:]}')
     print('[2/5] Collect embedding info from .npy files ...')
-    embedding_files = [('scratch_cnn', PATHS.EMB_SCRATCH_CNN), ('resnet50', PATHS.EMB_RESNET50), ('efficientnet_b0', PATHS.EMB_EFFNET_B0), ('clip_image', PATHS.EMB_CLIP_IMAGE), ('tfidf', PATHS.EMB_TFIDF), ('sbert', PATHS.EMB_SBERT), ('clip_text', PATHS.EMB_CLIP_TEXT)]
+    embedding_files = [('resnet50', PATHS.EMB_RESNET50), ('efficientnet_b0', PATHS.EMB_EFFNET_B0), ('clip_image', PATHS.EMB_CLIP_IMAGE), ('tfidf', PATHS.EMB_TFIDF), ('sbert', PATHS.EMB_SBERT), ('clip_text', PATHS.EMB_CLIP_TEXT)]
     embeddings_info: dict[str, dict] = {}
     for name, path in embedding_files:
         if not path.exists():

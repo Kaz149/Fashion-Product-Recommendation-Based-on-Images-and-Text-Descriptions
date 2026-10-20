@@ -6,12 +6,12 @@ import random
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 import pandas as pd
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 from config import CATEGORIES, PATHS
 REQUIRED_COLUMNS = ['id', 'image_path', 'product_name', 'description', 'color', 'material', 'style', 'category']
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
 _IMAGENET_TO_CATEGORY = {'n02916936': 'shirt', 'n04133789': 'shoes', 'n03047690': 'shoes', 'n02747177': 'bag', 'n04325704': 'watch', 'n03450230': 'dress', 'n02807133': 'underwear'}
-_FILENAME_KEYWORDS = {'shirt': ['t-shirt', 'tshirt', 'tee', 'shirt', 'blouse', 'top'], 'trouser': ['trouser', 'pant', 'pants', 'jeans', 'jean', 'short', 'shorts'], 'shoes': ['shoes', 'shoe', 'sneaker', 'sneakers', 'boot', 'boots', 'sandal', 'sandals', 'footwear', 'loafer'], 'bag': ['bag', 'purse', 'backpack', 'handbag', 'tote', 'clutch', 'wallet'], 'watch': ['watch', 'wristwatch', 'clock'], 'dress': ['dress', 'gown', 'skirt', 'outfit'], 'underwear': ['underwear', 'underpant', 'brief', 'bra', 'panties', 'lingerie']}
+_FILENAME_KEYWORDS = {'shirt': ['t-shirt', 'tshirt', 'tee', 'shirt', 'blouse', 'top', 'polo', 'sweater', 'hoodie', 'jacket', 'coat', 'cardigan', 'vest', 'jersey'], 'trouser': ['trouser', 'pant', 'pants', 'jeans', 'jean', 'short', 'shorts', 'chino', 'jogger', 'legging'], 'shoes': ['shoes', 'shoe', 'sneaker', 'sneakers', 'boot', 'boots', 'sandal', 'sandals', 'footwear', 'loafer', 'heel', 'heels', 'slipper', 'sock'], 'bag': ['bag', 'purse', 'backpack', 'handbag', 'tote', 'clutch', 'wallet', 'satchel', 'duffel'], 'watch': ['watch', 'wristwatch', 'clock', 'stopwatch'], 'dress': ['dress', 'gown', 'skirt', 'outfit', 'frock', 'jumpsuit', 'romper'], 'underwear': ['underwear', 'underpant', 'brief', 'bra', 'panties', 'lingerie', 'bikini', 'swimsuit', 'maillot']}
 _VIETNAMESE_CATEGORY = {'shirt': 'Áo', 'trouser': 'Quần', 'shoes': 'Giày', 'bag': 'Túi xách', 'watch': 'Đồng hồ', 'dress': 'Váy đầm', 'underwear': 'Đồ lót'}
 _VIETNAMESE_COLOR = {'white': 'trắng', 'black': 'đen', 'blue': 'xanh dương', 'navy': 'xanh đậm', 'gray': 'xám', 'pink': 'hồng', 'red': 'đỏ', 'olive': 'xanh olive', 'brown': 'nâu', 'beige': 'be', 'green': 'xanh lá', 'yellow': 'vàng', 'purple': 'tím'}
 _VIETNAMESE_MATERIAL = {'cotton': 'cotton', 'polyester': 'polyester', 'leather': 'da', 'denim': 'jean', 'linen': 'lanh', 'canvas': 'vải bạt', 'silk': 'lụa', 'wool': 'len', 'suede': 'da lộn', 'nylon': 'nylon', 'rubber': 'cao su', 'satin': 'satin'}
@@ -187,7 +187,7 @@ class DatasetLoader:
         else:
             raise ValueError(f'Unknown format: {self.format}')
         return filter_fashion_only(rows)
-_COLOR_PROTOTYPES = {'white': (245, 245, 245), 'black': (22, 22, 22), 'gray': (128, 128, 128), 'red': (200, 30, 30), 'blue': (30, 80, 200), 'navy': (20, 30, 80), 'green': (30, 150, 70), 'yellow': (240, 210, 60), 'pink': (240, 150, 180), 'brown': (120, 70, 30), 'beige': (220, 200, 170), 'olive': (110, 110, 60), 'purple': (130, 60, 180), 'orange': (235, 130, 40)}
+_COLOR_PROTOTYPES = {'white': (245, 245, 245), 'black': (22, 22, 22), 'charcoal': (54, 54, 54), 'gray': (128, 128, 128), 'silver': (192, 192, 192), 'cream': (240, 230, 205), 'red': (200, 30, 30), 'maroon': (128, 20, 30), 'coral': (240, 120, 100), 'orange': (235, 130, 40), 'gold': (212, 175, 55), 'mustard': (220, 180, 40), 'yellow': (240, 210, 60), 'beige': (220, 200, 170), 'khaki': (195, 175, 130), 'brown': (120, 70, 30), 'olive': (110, 110, 60), 'green': (30, 150, 70), 'mint': (170, 230, 190), 'teal': (0, 150, 150), 'cyan': (60, 200, 230), 'blue': (30, 80, 200), 'navy': (20, 30, 80), 'purple': (130, 60, 180), 'lavender': (200, 180, 230), 'pink': (240, 150, 180)}
 
 def extract_color_from_image(img_path: str | Path | None) -> Optional[str]:
     if not img_path:
@@ -196,14 +196,66 @@ def extract_color_from_image(img_path: str | Path | None) -> Optional[str]:
         p = Path(str(img_path))
         if not p.exists():
             return None
+        import colorsys
         import numpy as np
         with Image.open(p) as im:
-            im = im.convert('RGB').resize((64, 64), Image.LANCZOS)
-            arr = __import__('numpy').asarray(im, dtype=float).reshape(-1, 3)
-            mask = ~((arr[:, 0] > 225) & (arr[:, 1] > 225) & (arr[:, 2] > 225))
-            fg = arr[mask] if mask.sum() > 200 else arr
+            im = ImageOps.exif_transpose(im).convert('RGB')
+            w, h = im.size
+            left, upper = int(w * 0.2), int(h * 0.2)
+            im = im.crop((left, upper, w - left, h - upper)).resize((64, 64), Image.LANCZOS)
+            arr = np.asarray(im, dtype=float).reshape(-1, 3)
+            is_bg = (arr[:, 0] > 225) & (arr[:, 1] > 225) & (arr[:, 2] > 225)
+            fg = arr[~is_bg] if (~is_bg).sum() > 200 else arr
             c = np.median(fg, axis=0)
-            import math
+            r, g, b = (float(v) / 255.0 for v in c)
+            mx, mn = max(r, g, b), min(r, g, b)
+            sat = 0.0 if mx == 0 else (mx - mn) / mx
+            val = mx
+            if val < 0.12:
+                return 'black'
+            if sat < 0.12:
+                if val > 0.92:
+                    return 'white'
+                if val > 0.72:
+                    return 'silver'
+                if 0.55 < val <= 0.72:
+                    return 'gray'
+                return 'charcoal'
+            hue, _, _ = colorsys.rgb_to_hsv(r, g, b)
+            hue *= 360.0
+            if sat < 0.25:
+                if 35 <= hue <= 55 and val > 0.8:
+                    return 'cream' if val > 0.88 else 'beige'
+                if 35 <= hue <= 55:
+                    return 'khaki'
+            if hue < 12 or hue >= 345:
+                return 'maroon' if val < 0.45 else 'red'
+            if 12 <= hue < 28:
+                if sat < 0.45:
+                    return 'coral'
+                return 'orange'
+            if 28 <= hue < 48:
+                if abs(r * 255 - 212) + abs(g * 255 - 175) + abs(b * 255 - 55) < 90:
+                    return 'gold'
+                return 'mustard' if sat > 0.55 else 'beige'
+            if 48 <= hue < 75:
+                return 'yellow'
+            if 75 <= hue < 100:
+                return 'olive' if sat < 0.5 else 'green'
+            if 100 <= hue < 150:
+                return 'mint' if sat < 0.45 and val > 0.7 else 'green'
+            if 150 <= hue < 195:
+                return 'teal' if sat > 0.45 else 'mint'
+            if 195 <= hue < 215:
+                return 'cyan'
+            if 215 <= hue < 250:
+                return 'navy' if val < 0.45 else 'blue'
+            if 250 <= hue < 270:
+                return 'navy' if val < 0.55 else 'blue'
+            if 270 <= hue < 295:
+                return 'purple'
+            if 295 <= hue < 315:
+                return 'lavender' if sat < 0.5 else 'purple'
             best, best_d = ('gray', 1e+18)
             for name, proto in _COLOR_PROTOTYPES.items():
                 d = sum(((float(x) - float(y)) ** 2 for x, y in zip(c, proto)))
@@ -342,11 +394,19 @@ class MetadataGenerator:
     def build_corpus_list(rows: List[Dict[str, Any]]) -> List[str]:
         return [MetadataGenerator.build_corpus_text(r) for r in rows]
 
-def sanitize_images(raw_paths_with_ids: List[Tuple[Any, Path]], dst_dir: Path, size: int=224) -> Tuple[List[Tuple[Any, Path]], List[Any]]:
+def sanitize_images(
+    raw_paths_with_ids: List[Tuple[Any, Path]],
+    dst_dir: Path,
+    size: int | Tuple[int, int] = (60, 80),
+    min_size: Optional[int] = 60,
+    crop_to_fill: bool = True,
+) -> Tuple[List[Tuple[Any, Path]], List[Any], List[Tuple[Any, Tuple[int, int]]]]:
     dst_dir = Path(dst_dir)
     dst_dir.mkdir(parents=True, exist_ok=True)
+    target: Tuple[int, int] = (size, size) if isinstance(size, int) else (int(size[0]), int(size[1]))
     success: List[Tuple[Any, Path]] = []
     failed: List[Any] = []
+    low_res: List[Tuple[Any, Tuple[int, int]]] = []
     for item_id, raw_path in raw_paths_with_ids:
         try:
             p = Path(raw_path)
@@ -357,8 +417,14 @@ def sanitize_images(raw_paths_with_ids: List[Tuple[Any, Path]], dst_dir: Path, s
                 failed.append(item_id)
                 continue
             with Image.open(p) as img:
+                img = ImageOps.exif_transpose(img)
                 img = img.convert('RGB')
-                img = img.resize((size, size), Image.LANCZOS)
+                img.load()
+                w, h = img.size
+                short = min(w, h)
+                if min_size and short < min_size:
+                    low_res.append((item_id, img.size))
+                img = ImageOps.fit(img, target, Image.LANCZOS, centering=(0.5, 0.5))
                 dst_path = dst_dir / f'{item_id}.jpg'
                 img.save(dst_path, format='JPEG', quality=90, optimize=True)
                 if dst_path.stat().st_size == 0:
@@ -369,7 +435,7 @@ def sanitize_images(raw_paths_with_ids: List[Tuple[Any, Path]], dst_dir: Path, s
             failed.append(item_id)
         except Exception:
             failed.append(item_id)
-    return (success, failed)
+    return success, failed, low_res
 
 def save_metadata(rows: List[Dict[str, Any]], csv_path: Path) -> None:
     csv_path = Path(csv_path)

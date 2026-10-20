@@ -70,7 +70,7 @@ def main() -> None:
         print('-' * 72)
         print('[STEP 1] Extract IMAGE embeddings (4 models)')
         print('-' * 72)
-        image_embedders = [('scratch_cnn', 'scratch', PATHS.EMB_SCRATCH_CNN), ('resnet50', 'resnet', PATHS.EMB_RESNET50), ('efficientnet_b0', 'effnet', PATHS.EMB_EFFNET_B0), ('clip_image', 'clip', PATHS.EMB_CLIP_IMAGE)]
+        image_embedders = [('resnet50', 'resnet', PATHS.EMB_RESNET50), ('efficientnet_b0', 'effnet', PATHS.EMB_EFFNET_B0), ('clip_image', 'clip', PATHS.EMB_CLIP_IMAGE)]
         for idx, (name, cls_name, path) in enumerate(image_embedders, 1):
             dim = IMAGE_MODELS.DIMS[cls_name]
             banner = f'[Image {idx}/4] {name} embedding ... dim={dim}'
@@ -120,13 +120,9 @@ def main() -> None:
                 result_entries.append({'group': 'text', 'name': name, 'path': path, 'status': 'skipped', 'reason': skip_reason})
                 continue
             if cls_name == 'tfidf':
-                if PATHS.TFIDF_VECTORIZER.exists():
-                    print(f'  Loading fitted TF-IDF vectorizer from {PATHS.TFIDF_VECTORIZER.name}')
-                    tfidf = TFIDFEmbedder.load_fitted()
-                else:
-                    print(f'  Fitting new TF-IDF vectorizer on corpus (len={len(corpus)})')
-                    tfidf = TFIDFEmbedder()
-                    tfidf.fit(corpus)
+                print(f'  Fitting new TF-IDF vectorizer on corpus (len={len(corpus)})')
+                tfidf = TFIDFEmbedder()
+                tfidf.fit(corpus)
                 arr = tfidf.embed_batch(corpus, batch_size=args.batch_size, verbose=True)
             else:
                 embedder = get_text_embedder(cls_name)

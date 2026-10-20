@@ -84,14 +84,19 @@ def main() -> int:
     if not rows:
         print('  [ERROR] 0 products remaining after fashion-only filter. Check your dataset category names.')
         return 1
-    _banner_step(4, 'Sanitize + copy images (resize 224x224)')
+    _banner_step(4, 'Sanitize + copy images (standardize 60x80)')
     raw_pairs: list[tuple] = []
     for r in rows:
         raw_path = r.get('_raw_image_path') or r.get('image_path')
         if raw_path:
             raw_pairs.append((r['id'], Path(raw_path)))
     print(f'  Processing {len(raw_pairs)} images...')
-    success, failed = sanitize_images(raw_paths_with_ids=raw_pairs, dst_dir=PATHS.DATA_PROCESSED_IMAGES, size=224)
+    success, failed, low_res = sanitize_images(raw_paths_with_ids=raw_pairs, dst_dir=PATHS.DATA_PROCESSED_IMAGES, size=(60, 80), min_size=60, crop_to_fill=True)
+    if low_res:
+        small = {str(i): f'{w}x{h}' for i, (w, h) in low_res}
+        print(f'  [HD GATE] {len(low_res)} image(s) below 60px on the short edge (e.g. {list(small.values())[0]}).')
+        print('             Standardized to 60x80 anyway via cover fit; expect softness on small sources.')
+        print(f'             IDs: {", ".join(list(small)[:10])}{" ..." if len(small) > 10 else ""}')
     id_to_new_path = {item_id: new_path for item_id, new_path in success}
     failed_set = set(failed)
     keep_rows: list[dict] = []

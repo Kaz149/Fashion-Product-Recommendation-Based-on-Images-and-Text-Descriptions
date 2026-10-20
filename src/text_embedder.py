@@ -38,7 +38,7 @@ class BaseTextEmbedder(ABC):
         v = batch_emb[0]
         norm = np.linalg.norm(v)
         if norm == 0:
-            return np.zeros(self.dim, dtype=np.float32)
+            return np.zeros_like(v, dtype=np.float32)
         return (v / norm).astype(np.float32)
 
     def embed_batch(self, texts: List[str], batch_size: int=64, verbose: bool=True) -> np.ndarray:
