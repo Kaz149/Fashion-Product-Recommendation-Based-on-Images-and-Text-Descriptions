@@ -14,7 +14,7 @@ try:
 except ImportError:
     open_clip = None
 from tqdm import tqdm
-from config import PATHS, IMAGE_MODELS, CLIP, DEVICE
+from config import IMAGE_MODELS, CLIP, DEVICE
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
@@ -67,11 +67,6 @@ class BaseImageEmbedder(ABC):
         norms[norms == 0] = 1.0
         return (stacked / norms).astype(np.float32)
 
-class ScratchCNNEmbedder(BaseImageEmbedder, dim=512):
-    def __init__(self, *a, **k):
-        raise ValueError('scratch removed')
-    def _embed_batch_tensor(self, batch_tensor):
-        raise NotImplementedError
 
 class ResNet50Embedder(BaseImageEmbedder, dim=IMAGE_MODELS.DIMS['resnet']):
     transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor(), transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)])
@@ -136,9 +131,7 @@ class CLIPImageEmbedder(BaseImageEmbedder, dim=IMAGE_MODELS.DIMS['clip']):
         return encoded.float().detach().cpu().numpy().astype(np.float32)
 
 def get_image_embedder(name: str, **kwargs) -> BaseImageEmbedder:
-    if name == 'scratch':
-        raise ValueError("scratch CNN removed - use 'clip', 'resnet' or 'effnet'")
-    elif name == 'resnet':
+    if name == 'resnet':
         return ResNet50Embedder(**kwargs)
     elif name == 'effnet':
         return EfficientNetB0Embedder(**kwargs)

@@ -120,9 +120,13 @@ def main() -> None:
                 result_entries.append({'group': 'text', 'name': name, 'path': path, 'status': 'skipped', 'reason': skip_reason})
                 continue
             if cls_name == 'tfidf':
-                print(f'  Fitting new TF-IDF vectorizer on corpus (len={len(corpus)})')
-                tfidf = TFIDFEmbedder()
-                tfidf.fit(corpus)
+                if PATHS.TFIDF_VECTORIZER.exists():
+                    print(f'  Loading fitted TF-IDF vectorizer from {PATHS.TFIDF_VECTORIZER.name}')
+                    tfidf = TFIDFEmbedder.load_fitted()
+                else:
+                    print(f'  Fitting new TF-IDF vectorizer on corpus (len={len(corpus)})')
+                    tfidf = TFIDFEmbedder()
+                    tfidf.fit(corpus)
                 arr = tfidf.embed_batch(corpus, batch_size=args.batch_size, verbose=True)
             else:
                 embedder = get_text_embedder(cls_name)
@@ -164,7 +168,7 @@ def main() -> None:
     print(f'  Đã tạo / ghi đè : {saved_count}')
     print(f'  Đã bỏ qua        : {skip_count}')
     print()
-    print('Hoàn thành. Chạy scripts/04_build_embedding_manifest.py để cập nhật manifest.')
+    print('Hoàn thành. Chạy scripts/03_build_embedding_manifest.py để cập nhật manifest.')
     print('=' * 72)
 if __name__ == '__main__':
     main()

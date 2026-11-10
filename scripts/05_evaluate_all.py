@@ -112,10 +112,11 @@ def _draw_charts(metrics_df: pd.DataFrame, bar_path: Path, curve_path: Path) -> 
             pass
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='so sánh 6 mô hình retrieval và xuất báo cáo')
+    parser = argparse.ArgumentParser(description='so sánh các mô hình retrieval và xuất báo cáo')
     parser.add_argument('--top-k-max', type=int, default=max(EVALUATION.K_LIST), help=f'Top-K tối đa để retrieval (mặc định max(K_LIST)={max(EVALUATION.K_LIST)})')
     parser.add_argument('--outdir', type=str, default=str(PATHS.REPORTS_DIR), help=f'Thư mục xuất báo cáo (mặc định {PATHS.REPORTS_DIR})')
     parser.add_argument('--skip-existing', action='store_true', help='Bỏ qua nếu metrics.csv đã tồn tại')
+    parser.add_argument('--no-ablation', action='store_true', help='Bỏ các dòng ablation "embedding-only" (chỉ chấm điểm xếp hạng thuần embedding)')
     args = parser.parse_args()
     PATHS.ensure_all()
     outdir = Path(args.outdir).resolve()
@@ -159,9 +160,25 @@ def main() -> None:
         print('✓ Scratch CNN embedding OK (có norm trung bình > 0)')
     print()
     print('=' * 70)
-    print('Bước 4/6: Định nghĩa 6 mô hình so sánh')
+    print('Bước 4/6: Định nghĩa danh sách mô hình so sánh')
     print('=' * 70)
-    methods = [('CLIP Multimodal (alpha=0.5)', {'mode': 'multimodal', 'alpha': 0.5}), ('CLIP Multimodal (alpha=0.7)', {'mode': 'multimodal', 'alpha': 0.7}), ('CLIP Image', {'mode': 'image', 'model': 'clip'}), ('ResNet50 ', {'mode': 'image', 'model': 'resnet'}), ('EfficientNet-B0', {'mode': 'image', 'model': 'effnet'}), ('TF-IDF', {'mode': 'text', 'model': 'tfidf'}), ('Sentence-BERT', {'mode': 'text', 'model': 'sbert'})]
+    base_methods = [
+        ('CLIP Multimodal (alpha=0.5)', {'mode': 'multimodal', 'alpha': 0.5}),
+        ('CLIP Multimodal (alpha=0.7)', {'mode': 'multimodal', 'alpha': 0.7}),
+        ('CLIP Image', {'mode': 'image', 'model': 'clip'}),
+        ('ResNet50', {'mode': 'image', 'model': 'resnet'}),
+        ('EfficientNet-B0', {'mode': 'image', 'model': 'effnet'}),
+        ('TF-IDF', {'mode': 'text', 'model': 'tfidf'}),
+        ('Sentence-BERT', {'mode': 'text', 'model': 'sbert'}),
+    ]
+    # Ablation: same encoder, ranking by embedding similarity only. Without it the
+    # attribute boost reorders every query and two encoders produce the same table.
+    ablation_methods = [
+        ('TF-IDF (embedding-only)', {'mode': 'text', 'model': 'tfidf', 'attribute_boost': False}),
+        ('Sentence-BERT (embedding-only)', {'mode': 'text', 'model': 'sbert', 'attribute_boost': False}),
+        ('CLIP Text (embedding-only)', {'mode': 'text', 'model': 'clip', 'attribute_boost': False}),
+    ]
+    methods = base_methods if args.no_ablation else base_methods + ablation_methods
     for i, (name, _) in enumerate(methods, 1):
         print(f'  {i}. {name}')
     print()

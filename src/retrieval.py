@@ -1,10 +1,10 @@
-import os, pickle, warnings
+import hashlib, pickle, warnings
 from pathlib import Path, PureWindowsPath
-from typing import Literal, Any, Optional, Dict, List, Tuple
+from typing import Iterable, Literal, Any, Optional, Dict, List, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.neighbors import NearestNeighbors
-from config import PATHS, IMAGE_MODELS, TEXT_MODELS, RETRIEVAL, CATEGORIES, DEVICE, CLIP as CLIP_CFG
+from config import PATHS, TEXT_MODELS, RETRIEVAL, CATEGORIES
 from src.dataset_adaptor import is_embedding_stale
 from src.image_embedder import get_image_embedder
 from src.text_embedder import get_text_embedder, TFIDFEmbedder
@@ -173,21 +173,16 @@ def parse_query_attrs(text: str):
     return (color, cat, gender, style, material)
 
 def _resolve_catalog_image_path(image_path: str | Path) -> Path:
-    """Tim anh danh muc trong thu muc du an hien tai khi chuyen may."""
     stored_path = str(image_path).strip()
-    # PureWindowsPath doc duoc ca duong dan Windows va ten dung dau '/'.
-    # Dung ten file de tim lai anh trong ban du an vua giai nen.
+    # PureWindowsPath đọc được cả đường dẫn Windows lẫn tên dùng dấu '/'.
     filename = PureWindowsPath(stored_path).name
     local_path = PATHS.DATA_PROCESSED_IMAGES / filename
     if filename and local_path.is_file():
         return local_path.resolve()
-
-    # Van ho tro anh o vi tri khac neu duong dan da luu con hop le.
     original_path = Path(stored_path)
     if not original_path.is_absolute():
         original_path = PATHS.PROJECT_ROOT / original_path
     return original_path
-
 
 class Retriever:
 
@@ -196,6 +191,7 @@ class Retriever:
         self.metadata: Optional[pd.DataFrame] = None
         self.product_ids: Optional[List[Any]] = None
         self.image_paths: Optional[List[Path]] = None
+        self._stored_image_paths: List[str] = []
         self.embeddings: Dict[str, np.ndarray] = {}
         self._img_embedders_cache: Dict = {}
         self._txt_embedders_cache: Dict = {}
@@ -225,8 +221,13 @@ class Retriever:
             with open(PATHS.EMB_INDEX_MAPPING, 'rb') as f:
                 m = pickle.load(f)
             self.product_ids = m['product_ids']
+            self._stored_image_paths = [str(p) for p in m['image_paths']]
             self.image_paths = [_resolve_catalog_image_path(p) for p in m['image_paths']]
         return (self.product_ids, self.image_paths)
+
+    @staticmethod
+    def resolve_image_path(image_path: str | Path) -> Path:
+        return _resolve_catalog_image_path(image_path)
 
     def _lazy_warn_stale(self):
         if is_embedding_stale(PATHS.EMB_MANIFEST, PATHS.DATA_PROCESSED_METADATA, PATHS.DATA_PROCESSED_IMAGES):
@@ -253,11 +254,9 @@ class Retriever:
             self._nn_index_cache[emb_name] = nn
         return self._nn_index_cache[emb_name]
 
-    def _kneighbors(self, emb_name: str, corpus: np.ndarray, query_vec: np.ndarray, top_k: int, extra_neighbors: int=0) -> Tuple[np.ndarray, np.ndarray]:
-        if len(corpus) == 0:
-            return (np.array([], dtype=np.float32), np.array([], dtype=np.int64))
+    def _kneighbors(self, emb_name: str, corpus: np.ndarray, query_vec: np.ndarray, top_k: int) -> Tuple[np.ndarray, np.ndarray]:
         q = np.atleast_2d(np.asarray(query_vec, dtype=np.float32))
-        topk = min(len(corpus), max(1, min(int(top_k), RETRIEVAL.DEFAULT_MAX_K)) + max(0, int(extra_neighbors)))
+        topk = max(1, min(int(top_k), RETRIEVAL.DEFAULT_MAX_K))
         nn = self._get_or_fit_nn(emb_name, corpus)
         if topk > nn.n_neighbors:
             nn2 = NearestNeighbors(n_neighbors=topk, metric=RETRIEVAL.METRIC, algorithm=RETRIEVAL.ALGORITHM, n_jobs=1).fit(corpus)
@@ -266,59 +265,89 @@ class Retriever:
         dists, idxs = nn.kneighbors(q, n_neighbors=topk)
         return (dists[0], idxs[0])
 
+    def filter_mask(self, filters: Optional[Dict[str, List[str]]]) -> Optional[np.ndarray]:
+        if not filters:
+            return None
+        from src.filters import build_mask
+        return build_mask(self.load_metadata(), filters)
+
+    def _search_in_mask(self, emb_name: str, corpus: np.ndarray, query_vec: np.ndarray, top_k: int, mask: Optional[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+        if mask is None:
+            return self._kneighbors(emb_name, corpus, query_vec, top_k)
+        subset = np.flatnonzero(mask)
+        if subset.size == 0:
+            return (np.empty(0, dtype=int), np.empty(0, dtype=np.float32))
+        builder = hashlib.blake2b(np.ascontiguousarray(mask).tobytes(), digest_size=8).hexdigest()
+        key = f'{emb_name}::filtered::{builder}'
+        k = max(1, min(int(top_k), int(subset.size)))
+        nn = self._nn_index_cache.get(key)
+        if nn is None or nn.n_neighbors < k:
+            nn = NearestNeighbors(n_neighbors=k, metric=RETRIEVAL.METRIC, algorithm=RETRIEVAL.ALGORITHM, n_jobs=1).fit(corpus[subset])
+            self._nn_index_cache[key] = nn
+        dists, local = nn.kneighbors(np.atleast_2d(np.asarray(query_vec, dtype=np.float32)), n_neighbors=k)
+        return (dists[0], subset[local[0]])
+
     def _build_result_row(self, idx: int, sim: float) -> Dict[str, Any]:
         md = self.load_metadata().iloc[idx]
         return {'index': int(idx), 'id': self.product_ids[idx] if self.product_ids else int(md.get('id', idx)), 'image_path': str(self.image_paths[idx]) if self.image_paths else str(md.image_path), 'product_name': str(md.get('product_name', '')), 'description': str(md.get('description', '')), 'category': str(md.get('category', 'other')), 'color': str(md.get('color', '')), 'material': str(md.get('material', '')), 'style': str(md.get('style', '')), 'similarity': float(max(0.0, min(1.0, sim)))}
 
-    def _lookup_image_index_in_corpus(self, img_path) -> Optional[int]:
-        try:
-            p = Path(img_path).resolve()
-        except Exception:
-            p = str(img_path)
-        if self.image_paths is None:
-            return None
-        for i, ip in enumerate(self.image_paths):
-            try:
-                if Path(ip).resolve() == p:
-                    return i
-            except Exception:
+    def _path_to_index(self) -> Dict[str, int]:
+        if getattr(self, '_path_to_index_cache', None) is None:
+            mapping: Dict[str, int] = {}
+            stored = getattr(self, '_stored_image_paths', None) or []
+            for i, ip in enumerate(self.image_paths or []):
+                # Index the path as stored in index_mapping and the one resolved
+                # for this checkout, so callers using either form hit the map.
+                if i < len(stored):
+                    mapping[stored[i]] = i
+                mapping[str(ip)] = i
                 try:
-                    if str(ip) == str(img_path):
-                        return i
+                    mapping[str(Path(ip).resolve())] = i
                 except Exception:
                     pass
-        return None
+            self._path_to_index_cache = mapping
+        return self._path_to_index_cache
 
     def _lookup_image_embedding_in_corpus(self, img_path, emb_name: str) -> Optional[np.ndarray]:
-        idx = self._lookup_image_index_in_corpus(img_path)
-        if idx is None:
+        if self.image_paths is None:
             return None
-        return np.asarray(self.get_embedding(emb_name)[idx], dtype=np.float32).copy()
+        keys = [str(img_path)]
+        try:
+            keys.append(str(Path(img_path).resolve()))
+        except Exception:
+            pass
+        mapping = self._path_to_index()
+        for key in keys:
+            index = mapping.get(key)
+            if index is not None:
+                emb_all = self.get_embedding(emb_name)
+                return np.asarray(emb_all[index], dtype=np.float32).copy()
+        return None
 
-    def search_by_image(self, img_path: str | Path, model: Literal['resnet', 'effnet', 'clip']=RETRIEVAL.DEFAULT_IMAGE, top_k: int=RETRIEVAL.DEFAULT_TOP_K) -> List[Dict[str, Any]]:
+    def search_by_image(self, img_path: str | Path, model: Literal['resnet', 'effnet', 'clip']=RETRIEVAL.DEFAULT_IMAGE, top_k: int=RETRIEVAL.DEFAULT_TOP_K, filters: Optional[Dict[str, List[str]]]=None, exclude: Optional[Iterable[Any]]=None) -> List[Dict[str, Any]]:
         self.load_metadata()
         self.load_index_mapping()
         name_map = {'resnet': 'resnet50', 'effnet': 'efficientnet_b0', 'clip': 'clip_image'}
         emb_name = name_map[model]
-        corpus = self.get_embedding(emb_name)
-        query_idx = self._lookup_image_index_in_corpus(img_path)
-        if len(corpus) <= (1 if query_idx is not None else 0):
-            return []
-        if query_idx is not None:
-            qvec = np.asarray(corpus[query_idx], dtype=np.float32).copy()
-        else:
+        qvec = self._lookup_image_embedding_in_corpus(img_path, emb_name)
+        if qvec is None:
             if model not in self._img_embedders_cache:
                 self._img_embedders_cache[model] = get_image_embedder(model)
             embedder = self._img_embedders_cache[model]
             qvec = embedder.embed(img_path)
+        blocked = {str(item) for item in (exclude or ())}
         limit = max(1, min(int(top_k), RETRIEVAL.DEFAULT_MAX_K))
-        # Lay them mot ung vien de van du top-k sau khi loai anh truy van.
-        dists, idxs = self._kneighbors(emb_name, corpus, qvec, limit, extra_neighbors=1 if query_idx is not None else 0)
+        # Over-fetch by the number of excluded ids so a blocked self-match does not
+        # eat one of the requested slots.
+        request_k = limit + len(blocked)
+        corpus = self.get_embedding(emb_name)
+        dists, idxs = self._search_in_mask(emb_name, corpus, qvec, request_k, self.filter_mask(filters))
         sims = 1.0 - dists
-        results = [self._build_result_row(int(i), float(s)) for i, s in zip(idxs, sims) if int(i) != query_idx]
+        results = [self._build_result_row(int(i), float(s)) for i, s in zip(idxs, sims)]
+        results = [row for row in results if str(row.get('id')) not in blocked]
         return sorted(results, key=lambda r: r['similarity'], reverse=True)[:limit]
 
-    def search_by_text(self, text: str, model: Literal['tfidf', 'sbert', 'clip']=TEXT_MODELS.DEFAULT, top_k: int=RETRIEVAL.DEFAULT_TOP_K) -> List[Dict[str, Any]]:
+    def search_by_text(self, text: str, model: Literal['tfidf', 'sbert', 'clip']=TEXT_MODELS.DEFAULT, top_k: int=RETRIEVAL.DEFAULT_TOP_K, filters: Optional[Dict[str, List[str]]]=None, attribute_boost: bool=True) -> List[Dict[str, Any]]:
         self.load_metadata()
         self.load_index_mapping()
         emb_name = {'tfidf': 'tfidf', 'sbert': 'sbert', 'clip': 'clip_text'}[model]
@@ -343,21 +372,28 @@ class Retriever:
         qvec = embedder.embed(text_expanded)
         corpus = self.get_embedding(emb_name)
         if model == 'tfidf':
-            if qvec.shape[0] != corpus.shape[1]:
-                raise ValueError('TF-IDF vectorizer và vector danh mục không khớp. Dừng ứng dụng rồi chạy: py -3.11 scripts/rebuild_tfidf.py')
-            n = float(np.linalg.norm(qvec))
-            if not np.isfinite(n) or n == 0.0:
-                raise ValueError('Không có từ phù hợp trong bộ từ vựng TF-IDF. Hãy thử mô tả khác; nếu bộ từ vựng chưa được xây từ danh mục hiện tại, dừng ứng dụng rồi chạy: py -3.11 scripts/rebuild_tfidf.py')
+            if qvec.shape[0] < corpus.shape[1]:
+                qp = np.zeros(corpus.shape[1], dtype=np.float32)
+                qp[:qvec.shape[0]] = qvec
+                qvec = qp
+            elif qvec.shape[0] > corpus.shape[1]:
+                qvec = qvec[:corpus.shape[1]]
+            n = np.linalg.norm(qvec) or 1.0
             qvec = qvec / n
+        mask = self.filter_mask(filters)
+        if mask is not None and not mask.any():
+            return []
         if want_color or want_cat:
             qn = qvec / (np.linalg.norm(qvec) or 1.0)
-            cn = corpus / (np.linalg.norm(corpus, axis=1, keepdims=True) + 1e-09)
-            sims_all = (cn @ qn.astype(np.float32)).astype(float)
-            idxs = np.arange(len(corpus))
-            sims = sims_all
+            candidate_idx = np.arange(len(corpus)) if mask is None else np.flatnonzero(mask)
+            candidate_corpus = corpus[candidate_idx]
+            cn = candidate_corpus / (np.linalg.norm(candidate_corpus, axis=1, keepdims=True) + 1e-09)
+            idxs = candidate_idx
+            sims = (cn @ qn.astype(np.float32)).astype(float)
         else:
-            pool_k = min(len(corpus), max(top_k * 10, 200))
-            dists, idxs = self._kneighbors(emb_name, corpus, qvec, pool_k)
+            pool_size = len(corpus) if mask is None else int(mask.sum())
+            pool_k = min(pool_size, max(top_k * 10, 200))
+            dists, idxs = self._search_in_mask(emb_name, corpus, qvec, pool_k, mask)
             sims = 1.0 - dists
         md = self.load_metadata()
         has_gender_col = 'gender' in md.columns
@@ -380,7 +416,7 @@ class Retriever:
                 boost += 0.15
             if want_gender and has_gender_col and (str(row.get('gender', '')).lower() == want_gender):
                 boost += 0.2
-            scored.append((float(s) + boost, int(i), float(s)))
+            scored.append((float(s) + boost if attribute_boost else float(s), int(i), float(s)))
         scored.sort(reverse=True)
 
         def _key(t):
@@ -393,17 +429,20 @@ class Retriever:
             sty_ok = bool(want_style) and str(row.get('style', '')).lower() == want_style
             mat_ok = bool(want_material) and str(row.get('material', '')).lower() == want_material
             gen_ok = bool(want_gender) and has_gender_col and (str(row.get('gender', '')).lower() == want_gender)
-            return (col_exact, col_fam, cat_ok, sty_ok, mat_ok, gen_ok, t[0])
-        if want_cat or want_color or want_style or want_material or (want_gender and has_gender_col):
+            # Category dominates: asking for a shirt must not surface a dress just
+            # because the dress happens to be the exact colour requested.
+            return (cat_ok, col_exact, col_fam, sty_ok, mat_ok, gen_ok, t[0])
+        if attribute_boost and (want_cat or want_color or want_style or want_material or (want_gender and has_gender_col)):
             scored.sort(key=_key, reverse=True)
         results = []
-        for b, i, s in scored[:top_k]:
+        for rank_score, i, s in scored[:top_k]:
             r = self._build_result_row(i, s)
             r['similarity'] = float(max(0.0, min(1.0, s)))
+            r['rank_score'] = float(rank_score)
             results.append(r)
         return results
 
-    def search_multimodal(self, img_path: Optional[str | Path]=None, text: Optional[str]=None, alpha: float=RETRIEVAL.FUSION_ALPHA_DEFAULT, top_k: int=RETRIEVAL.DEFAULT_TOP_K) -> List[Dict[str, Any]]:
+    def search_multimodal(self, img_path: Optional[str | Path]=None, text: Optional[str]=None, alpha: float=RETRIEVAL.FUSION_ALPHA_DEFAULT, top_k: int=RETRIEVAL.DEFAULT_TOP_K, filters: Optional[Dict[str, List[str]]]=None, attribute_boost: bool=False) -> List[Dict[str, Any]]:
         self.load_metadata()
         self.load_index_mapping()
         components: List[Tuple[float, np.ndarray]] = []
@@ -437,12 +476,72 @@ class Retriever:
         if n > 0:
             q = q / n
         corpus = self.get_embedding('clip_image')
-        dists, idxs = self._kneighbors('clip_image', corpus, q, top_k)
+        # Over-fetch candidates so attribute boost can surface exact-color items
+        # that are deeper in the ANN ranking (same fix as search_by_text).
+        fetch_k = top_k
+        if attribute_boost and text:
+            fetch_k = min(len(corpus), max(top_k * 10, 200))
+        dists, idxs = self._search_in_mask('clip_image', corpus, q, fetch_k, self.filter_mask(filters))
         sims = 1.0 - dists
+
+        # Optional text-attribute boost (used by the storefront search; disabled
+        # for benchmark model comparison so embeddings stay comparable).
+        corrected_text = text or ''
+        want_color = want_cat = want_style = want_material = want_gender = None
+        if attribute_boost and text:
+            corrected_text, _ = _autocorrect_query(text)
+            want_color, want_cat, want_gender, want_style, want_material = parse_query_attrs(corrected_text)
+
+        md = self.load_metadata()
+        has_gender_col = 'gender' in md.columns
+        if attribute_boost and text and (want_color or want_cat or want_style or want_material or (want_gender and has_gender_col)):
+            scored = []
+            for i, s in zip(idxs, sims):
+                boost = 0.0
+                row = md.iloc[int(i)]
+                row_color = str(row.get('color', '')).lower()
+                col_exact = bool(want_color) and row_color == want_color
+                col_near = bool(want_color) and (not col_exact) and row_color in _COLOR_SIMILAR.get(want_color, ())
+                if col_exact:
+                    boost += 0.6
+                elif col_near:
+                    boost += 0.35
+                if want_cat and CATEGORIES.normalize(str(row.get('category', ''))) == want_cat:
+                    boost += 0.4
+                if want_style and str(row.get('style', '')).lower() == want_style:
+                    boost += 0.25
+                if want_material and str(row.get('material', '')).lower() == want_material:
+                    boost += 0.15
+                if want_gender and has_gender_col and (str(row.get('gender', '')).lower() == want_gender):
+                    boost += 0.2
+                scored.append((float(s) + boost, int(i), float(s)))
+            scored.sort(reverse=True)
+
+            def _key(t):
+                row = md.iloc[t[1]]
+                row_color = str(row.get('color', '')).lower()
+                col_exact = bool(want_color) and row_color == want_color
+                col_near = bool(want_color) and (not col_exact) and row_color in _COLOR_SIMILAR.get(want_color, ())
+                col_fam = col_exact or col_near
+                cat_ok = bool(want_cat) and CATEGORIES.normalize(str(row.get('category', ''))) == want_cat
+                sty_ok = bool(want_style) and str(row.get('style', '')).lower() == want_style
+                mat_ok = bool(want_material) and str(row.get('material', '')).lower() == want_material
+                gen_ok = bool(want_gender) and has_gender_col and (str(row.get('gender', '')).lower() == want_gender)
+                return (cat_ok, col_exact, col_fam, sty_ok, mat_ok, gen_ok, t[0])
+
+            scored.sort(key=_key, reverse=True)
+            results = []
+            for rank_score, i, s in scored[:top_k]:
+                r = self._build_result_row(i, s)
+                r['similarity'] = float(max(0.0, min(1.0, s)))
+                r['rank_score'] = float(rank_score)
+                results.append(r)
+            return results
+
         results = [self._build_result_row(int(i), float(s)) for i, s in zip(idxs, sims)]
         return sorted(results, key=lambda r: r['similarity'], reverse=True)
 
-    def outfit_match(self, product_id: Any, target_category: str, top_k: int=RETRIEVAL.DEFAULT_TOP_K) -> List[Dict[str, Any]]:
+    def outfit_match(self, product_id: Any, target_category: str, top_k: int=RETRIEVAL.DEFAULT_TOP_K, match_mode: str='tone_on_tone', filters: Optional[Dict[str, List[str]]]=None) -> List[Dict[str, Any]]:
         self.load_metadata()
         self.load_index_mapping()
         df = self.metadata
@@ -461,6 +560,9 @@ class Retriever:
         src_style = str(src.get('style', '')).strip()
         tgt_cat_norm = CATEGORIES.normalize(target_category)
         tgt_mask = (df.category.apply(CATEGORIES.normalize) == tgt_cat_norm) & (df.id.astype(str) != str(product_id))
+        facet_mask = self.filter_mask(filters)
+        if facet_mask is not None:
+            tgt_mask = tgt_mask & facet_mask
         if RETRIEVAL.OUTFIT_MATCH_FILTER_CATEGORY:
             sub_df = df[tgt_mask].reset_index()
         else:
@@ -475,22 +577,80 @@ class Retriever:
         qvec = emb.embed(qtext)
         corpus_all = self.get_embedding('sbert')
         sub_corpus = np.asarray([corpus_all[i] for i in sub_indices_global], dtype=np.float32)
-        k = min(max(1, top_k), len(sub_corpus))
+        # Over-fetch candidates so the color boost can actually pull same-color
+        # items up: previously k == top_k meant boosting only reordered items
+        # SBERT already returned, and same-color products deeper in the ranking
+        # never surfaced (the "not working" symptom).
+        pool_k = min(len(sub_corpus), max(int(top_k) * 10, 50))
+        k = max(1, pool_k)
         nn = NearestNeighbors(n_neighbors=k, metric=RETRIEVAL.METRIC, algorithm=RETRIEVAL.ALGORITHM, n_jobs=1).fit(sub_corpus)
         dists, sub_idxs = nn.kneighbors(np.atleast_2d(qvec), n_neighbors=k)
         dists = dists[0]
         sub_idxs = sub_idxs[0]
+        src_color_low = (src_color or '').lower()
+        # Fallback: metadata color missing -> sample dominant color from image.
+        if not src_color_low or src_color_low in ('', 'other', 'unknown', 'none'):
+            try:
+                from src.dataset_adaptor import extract_color_from_image
+                guess = extract_color_from_image(str(src.get('image_path', '')))
+                if guess:
+                    src_color = str(guess)
+                    src_color_low = src_color.lower()
+            except Exception:
+                pass
+        src_similar = set(_COLOR_SIMILAR.get(src_color_low, ()))
+        _COMPLEMENTARY: Dict[str, tuple] = {
+            'green': ('red', 'maroon', 'pink'), 'red': ('green', 'teal', 'mint'),
+            'blue': ('orange', 'mustard', 'gold'), 'orange': ('blue', 'navy', 'teal'),
+            'yellow': ('purple', 'navy', 'charcoal'), 'purple': ('yellow', 'mustard', 'gold'),
+            'black': ('white', 'cream', 'beige'), 'white': ('black', 'navy', 'charcoal'),
+            'navy': ('beige', 'cream', 'mustard'), 'beige': ('navy', 'brown', 'olive'),
+            'pink': ('olive', 'green', 'navy'), 'brown': ('cream', 'beige', 'cyan'),
+            'olive': ('maroon', 'burgundy', 'navy'), 'teal': ('coral', 'red', 'mustard'),
+        }
+        want_complement = set(_COMPLEMENTARY.get(src_color_low, ()))
         results: List[Dict[str, Any]] = []
         for d, si in zip(dists, sub_idxs):
             global_idx = sub_indices_global[si]
             sim = 1.0 - float(d)
             row = self._build_result_row(int(global_idx), sim)
+            tgt_color = str(row.get('color', '') or '')
+            tgt_low = tgt_color.lower()
+            # Color-match boost: exact same color first, then same color family.
+            # e.g. green shirt -> green shoes/pants rank top, olive/mint/teal next.
+            color_boost = 0.0
+            color_note = ''
+            if src_color_low and tgt_low:
+                if match_mode == 'contrast':
+                    if tgt_low in want_complement:
+                        color_boost = 0.5
+                        color_note = f'Màu {tgt_color} tương phản {src_color} — phối nổi bật'
+                    elif tgt_low == src_color_low:
+                        color_boost = 0.15
+                        color_note = f'Cùng màu {src_color} — phối ton-sur-ton'
+                    elif tgt_low in src_similar:
+                        color_boost = 0.05
+                elif tgt_low == src_color_low:
+                    color_boost = 0.5
+                    color_note = f'Cùng màu {src_color} — phối ton-sur-ton'
+                elif tgt_low in src_similar:
+                    color_boost = 0.25
+                    color_note = f'Màu {tgt_color} cùng tông {src_color}'
+            sim = float(max(0.0, min(1.0, sim + color_boost)))
+            row['similarity'] = sim
+            # Tier for tiered ranking: 0 = exact color, 1 = same family /
+            # complementary, 2 = no color relation. Tier dominates SBERT score
+            # so same-color items always surface first.
+            if match_mode == 'contrast':
+                tier = 0 if (tgt_low and tgt_low in want_complement) else (1 if (tgt_low == src_color_low or tgt_low in src_similar) else 2)
+            else:
+                tier = 0 if (tgt_low and src_color_low and tgt_low == src_color_low) else (1 if tgt_low in src_similar else 2)
+            row['_color_tier'] = tier
             reasons = []
-            tgt_color = row.get('color', '')
             tgt_material = row.get('material', '')
             tgt_style = row.get('style', '')
-            if src_color and tgt_color and (src_color.lower() == tgt_color.lower()):
-                reasons.append(f'Cùng màu {src_color}')
+            if color_note:
+                reasons.append(color_note)
             if src_material and tgt_material and (src_material.lower() == tgt_material.lower()):
                 reasons.append(f'Cùng chất liệu {src_material}')
             if src_style and tgt_style and (src_style.lower() == tgt_style.lower()):
@@ -499,21 +659,8 @@ class Retriever:
                 reasons.append('Tương đồng về phong cách thời trang tổng thể')
             row['explanation'] = reasons
             results.append(row)
-        return sorted(results, key=lambda r: r['similarity'], reverse=True)
+        # Tiered sort: color tier first (exact > family > rest), then SBERT+boost
+        # score inside each tier. Guarantees same-color items top the list.
+        results = sorted(results, key=lambda r: (r.pop('_color_tier', 2), -r['similarity']))
+        return results[:max(1, int(top_k))]
 
-
-def tune_multimodal_alpha(retriever, query_items, alphas=(0.0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0), top_k=10):
-    from src import metrics as M
-    best = (0.5, -1.0)
-    rows = []
-    for a in alphas:
-        aps = []
-        for q in query_items:
-            res = retriever.search_multimodal(img_path=q.get('img'), text=q.get('text'), alpha=a, top_k=top_k)
-            pred = [x['id'] for x in res]
-            aps.append(M.average_precision_at_k(pred, q.get('relevant', []), top_k))
-        m = float(sum(aps) / max(1, len(aps)))
-        rows.append({'alpha': a, 'map': m})
-        if m > best[1]:
-            best = (a, m)
-    return {'best_alpha': best[0], 'best_map': best[1], 'rows': rows}

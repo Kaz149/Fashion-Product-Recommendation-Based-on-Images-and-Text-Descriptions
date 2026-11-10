@@ -1,4 +1,3 @@
-"""Build only TF-IDF from the current catalog; keep the other encoders intact."""
 from __future__ import annotations
 
 import hashlib
@@ -61,8 +60,7 @@ def main() -> None:
     norms = np.sqrt(np.asarray(sparse_vectors.multiply(sparse_vectors).sum(axis=1)).ravel())
     if np.any(norms == 0):
         raise ValueError('Có sản phẩm không có từ hợp lệ; chưa ghi thay đổi.')
-    # Existing retrieval and evaluation scripts load this .npy format.
-    # Keep that format for compatibility; fitting itself uses a sparse matrix.
+
     timestamp = datetime.now(timezone.utc)
     backup_dir = PATHS.PROJECT_ROOT / 'data' / 'backups' / ('tfidf_' + timestamp.strftime('%Y%m%d_%H%M%S_%f'))
     targets = [PATHS.TFIDF_VECTORIZER, PATHS.EMB_TFIDF, PATHS.EMB_MANIFEST]

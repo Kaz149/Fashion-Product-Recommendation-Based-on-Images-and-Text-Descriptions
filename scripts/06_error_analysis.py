@@ -15,36 +15,12 @@ from config import PATHS, IMAGE_MODELS, TEXT_MODELS, RETRIEVAL, CATEGORIES, EVAL
 REPORTS_ERROR_CASES_DIR = PATHS.REPORTS_DIR / 'error_cases'
 REPORTS_ERROR_ANALYSIS_MD = PATHS.ERROR_ANALYSIS_MD
 
-def recall_at_k(ranked_ids: List[Any], relevant_ids: List[Any], k: int) -> float:
-    if not relevant_ids:
-        return 0.0
-    rel_set = set((str(r) for r in relevant_ids))
-    top_k_ids = [str(x) for x in ranked_ids[:k]]
-    hit = sum((1 for rid in top_k_ids if rid in rel_set))
-    return hit / len(rel_set)
 
-def precision_at_k(ranked_ids: List[Any], relevant_ids: List[Any], k: int) -> float:
-    if k <= 0:
-        return 0.0
-    rel_set = set((str(r) for r in relevant_ids))
-    top_k_ids = [str(x) for x in ranked_ids[:k]]
-    hit = sum((1 for rid in top_k_ids if rid in rel_set))
-    return hit / min(k, len(top_k_ids)) if top_k_ids else 0.0
-
-def average_precision_at_k(ranked_ids: List[Any], relevant_ids: List[Any], k: int) -> float:
-    if not relevant_ids:
-        return 0.0
-    rel_set = set((str(r) for r in relevant_ids))
-    ranked_str = [str(x) for x in ranked_ids[:k]]
-    hits = 0.0
-    sum_prec = 0.0
-    for i, rid in enumerate(ranked_str):
-        if rid in rel_set:
-            hits += 1.0
-            sum_prec += hits / (i + 1.0)
-    if hits == 0:
-        return 0.0
-    return sum_prec / min(len(rel_set), k)
+from src.metrics import (  # noqa: E402
+    average_precision_at_k,
+    precision_at_k,
+    recall_at_k,
+)
 
 def step0_load_data() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     PATHS.ensure_all()
@@ -616,7 +592,7 @@ def step7_write_report(error_cases: List[Dict[str, Any]], type_counts: Dict[str,
 
 def main() -> None:
     print('=' * 70)
-    print('  SCRIPT 07: PHÂN TÍCH LỖI HỆ THỐNG GỢI Ý THỜI TRANG ĐA PHƯƠNG THỨC')
+    print('  SCRIPT 06: PHÂN TÍCH LỖI HỆ THỐNG GỢI Ý THỜI TRANG ĐA PHƯƠNG THỨC')
     print('=' * 70)
     print(f'  ERROR_ANALYSIS.NUM_CASES       = {ERROR_ANALYSIS.NUM_CASES}')
     print(f'  ERROR_ANALYSIS.TYPES           = {ERROR_ANALYSIS.TYPES}')
@@ -644,6 +620,9 @@ def main() -> None:
     print('  ✓ HOÀN THÀNH ERROR ANALYSIS!')
     print('=' * 70)
 if __name__ == '__main__':
+    import argparse
+    ap = argparse.ArgumentParser(description='Phân tích lỗi hệ thống gợi ý thời trang đa phương thức')
+    ap.parse_args()
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=UserWarning)
         main()

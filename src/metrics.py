@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Optional, Tuple
 from config import EVALUATION
 
 def _as_set(rel: Any) -> set:
@@ -47,17 +47,6 @@ def average_precision_at_k(retrieved_ids: list, relevant_ids: Any, k: int) -> fl
     denom = min(k, len(rel_set))
     return score / denom if denom > 0 else 0.0
 
-def mean_average_precision_at_k(all_retrieved: Dict[Any, list], all_relevant: Dict[Any, list], k: int) -> float:
-    all_keys = set(all_retrieved.keys()) | set(all_relevant.keys())
-    aps = []
-    for key in all_keys:
-        rel = all_relevant.get(key, [])
-        if len(_as_set(rel)) == 0:
-            continue
-        retr = all_retrieved.get(key, [])
-        aps.append(average_precision_at_k(retr, rel, k))
-    return float(np.mean(aps)) if aps else 0.0
-
 def f1_at_k(retrieved_ids: list, relevant_ids: Any, k: int) -> float:
     eps = 1e-12
     p = precision_at_k(retrieved_ids, relevant_ids, k)
@@ -102,11 +91,14 @@ def evaluate_method(method_name: str, retriever: Any, query_ids: list, relevant_
         query_text = ' '.join([product_name, description, category, color, material, style]).strip()
         results = []
         if mode == 'image':
-            results = retriever.search_by_image(img_path, model=mode_config['model'], top_k=max_k + 1)
+            # Exclude the query item itself: it is always its own nearest neighbour,
+            # so leaving it in burns rank 1 and drives Recall@1 to ~0.
+            results = retriever.search_by_image(img_path, model=mode_config['model'], top_k=max_k + 1, exclude=[qid_str])
+            results = [r for r in results if str(r.get('id', '')) != qid_str]
         elif mode == 'text':
             if not query_text:
                 query_text = product_name or 'fashion item'
-            results = retriever.search_by_text(query_text, model=mode_config['model'], top_k=max_k + 1)
+            results = retriever.search_by_text(query_text, model=mode_config['model'], top_k=max_k + 1, attribute_boost=mode_config.get('attribute_boost', True))
             results = [r for r in results if str(r.get('id', '')) != qid_str]
         elif mode == 'multimodal':
             if not query_text:

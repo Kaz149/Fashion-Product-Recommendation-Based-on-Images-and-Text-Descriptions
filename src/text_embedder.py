@@ -1,12 +1,10 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import List, Union
+from typing import List
 import numpy as np
 import joblib
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
@@ -38,7 +36,7 @@ class BaseTextEmbedder(ABC):
         v = batch_emb[0]
         norm = np.linalg.norm(v)
         if norm == 0:
-            return np.zeros_like(v, dtype=np.float32)
+            return np.zeros(self.dim, dtype=np.float32)
         return (v / norm).astype(np.float32)
 
     def embed_batch(self, texts: List[str], batch_size: int=64, verbose: bool=True) -> np.ndarray:
